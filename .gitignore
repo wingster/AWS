@@ -6,7 +6,8 @@
 .conda
 
 ## __pycache__
-*/*/__pycache__
+__pycache__/
 
 ## Misc
 Notes.txt
+.DS_Store
