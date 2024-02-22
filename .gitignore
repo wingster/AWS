@@ -1,0 +1,12 @@
+## VSCode settings
+.vscode
+*.code-workspace
+
+## Local Python venv
+.conda
+
+## __pycache__
+*/*/__pycache__
+
+## Misc
+Notes.txt
