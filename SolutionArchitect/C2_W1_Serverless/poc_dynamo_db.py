@@ -12,34 +12,62 @@ import boto3
 import json
 import sys
 
+dynamodb_definitions = {
+    "POC1_orders": {
+        "PartitionKey":{
+            "orderID": {
+                "DataType": "S",
+                "KeyType": "HASH"
+            },
+        },
+        "Stream": {
+            "Enable" : True,
+            "ViewType": "NEW_IMAGE",
+        },  
+    }
+}
+
+
 # create_tables will create the DynamoDB table that ingests data that's passed on through API Gateway
 def create_tables():
     # create the DynamoDB resource
     dynamodb = boto3.resource('dynamodb')
 
-    # create the DynamoDB table
-    table = dynamodb.create_table(
-        TableName='POC1_orders',
-        KeySchema=[
-            {
-                'AttributeName': 'orderID',
-                'KeyType': 'HASH'  # Partition key
-            }
-        ],
-        AttributeDefinitions=[
-            {
-                'AttributeName': 'orderID',
-                'AttributeType': 'S'
-            }
-        ],
-        ProvisionedThroughput={
-            'ReadCapacityUnits': 10,
-            'WriteCapacityUnits': 10
-        }
-    )
+    # read the dynamodb_definitions and create the tables as specified
+    for table_name, table_definition in dynamodb_definitions.items():
+        # Iterate the partitionkey dictionary and append to keySchema
+        keySchema = []
+        for key, value in table_definition['PartitionKey'].items():
+            keySchema.append({
+                'AttributeName': key,
+                'KeyType': value['KeyType']
+            })
+        
+        # Iterate the partitionkey dictionary and append to attributeDefinitions
+        attributeDefinitions = []
+        for key, value in table_definition['PartitionKey'].items():
+            attributeDefinitions.append({
+                'AttributeName': key,
+                'AttributeType': value['DataType']
+            })
 
-    # print the table status
-    print(f"Table status: {table.table_status}")
+        # create the DynamoDB table
+        table = dynamodb.create_table(
+            TableName=table_name,
+            KeySchema=keySchema,
+            AttributeDefinitions=attributeDefinitions,
+            ProvisionedThroughput={
+                'ReadCapacityUnits': 10,
+                'WriteCapacityUnits': 10
+            },
+            StreamSpecification={
+                'StreamEnabled': table_definition['Stream']['Enable'],
+                'StreamViewType': table_definition['Stream']['ViewType'],
+            },
+        )
+
+        # print the table status
+        print(f"Table status: {table.table_status}")
 
 
 # delete_tables will delete the DynamoDB table that ingests data that's passed on through API Gateway
@@ -47,10 +75,11 @@ def delete_tables():
     # create the DynamoDB resource
     dynamodb = boto3.resource('dynamodb')
 
-    # delete the DynamoDB table
-    table = dynamodb.Table('POC1_orders')
-    table.delete()
-
+    # delete the DynamoDB tables as specified in the dynamodb_definitions
+    for table_name, table_definition in dynamodb_definitions.items():
+        # delete the DynamoDB table
+        table = dynamodb.Table(table_name)
+        table.delete()
     # print the table status
     print(f"Table status: {table.table_status}")
 
