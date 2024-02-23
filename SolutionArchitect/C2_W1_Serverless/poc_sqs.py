@@ -100,7 +100,6 @@ def list_sqs():
     num_queues = 0
     # list the queues
     response = sqs.list_queues()
-
     # print the queue URLs
     for queue_url in response['QueueUrls']:
         # map the queue_url to the queue name
@@ -113,7 +112,22 @@ def list_sqs():
     
     print(f"Total number of queues: {len(response['QueueUrls'])}")
     print(f"Total number of queues defined by this module : {len([queue for queue in response['QueueUrls'] if queue.split('/')[-1].startswith('POC1')])}")
-    
+
+
+def get_sqs_queue_url(queue_name):
+    # create an SQS client
+    sqs = boto3.client('sqs')
+
+    # get the queue URL for the queue named "POC1-Queue"
+    queue_url = sqs.get_queue_url(QueueName=queue_name)
+    return queue_url['QueueUrl']
+
+def get_sqs_queue_arn(queue_name):
+    # create an SQS client
+    sqs = boto3.client('sqs')
+    queue_url = get_sqs_queue_url(queue_name)
+    return sqs.get_queue_attributes(QueueUrl=queue_url, AttributeNames=['QueueArn'])['Attributes']['QueueArn']
+
 
 #if this .py is executed directly on the command line
 def main(argv):
