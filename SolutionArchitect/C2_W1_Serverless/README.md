@@ -1,3 +1,29 @@
+API GateWay -> SQS_QUEUE, IAM ROLE
+DynamoDB -> 
+IAM Policy -> 
+IAM Role ->
+Lambda -> IAM ROLE, SQS, DynamoDB, SNS
+SNS -> 
+SQS -> IAM ROLE
+
+Order of deletion:
+
+Lambda
+API Gateway
+DynamoDB
+SQS
+SNS
+IAM Role
+IAM Policy
+
+
+
+
+
+
+
+
+
 Task 1. Setup: Creating IAM policies and roles
 
 When you first create an account on AWS, you become a root user, or an account owner. We don’t recommend that you use the account root user for daily operations and tasks. Instead, you should use an IAM user or IAM roles to access specific services and features. IAM policies, users, and roles are offered at no additional charge.

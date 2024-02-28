@@ -21,7 +21,7 @@
 import boto3
 import sys
 
-notification_email = "wing.s.chau@gmail.com"  # replace with your email address
+notification_email = "your.email@gmail.com"  # replace with your email address
 
 
 sns_definitions = {
