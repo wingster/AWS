@@ -113,6 +113,40 @@ def list_tables():
         print(table.latest_stream_label)
 
 
+def get_dynamodb_table_arn(table_name):
+    # create the DynamoDB resource
+    dynamodb = boto3.resource('dynamodb')
+
+    # get the DynamoDB table
+    table = dynamodb.Table(table_name)
+
+    # check if the table result is valid  
+    if not table:
+        print(f"DynamoDB Table {table_name} not found")
+        return None
+
+    # return the table arn
+    return table.table_arn
+
+
+def get_dynamodb_stream_arn(table_name):
+    # create the DynamoDB resource
+    dynamodb = boto3.resource('dynamodb')
+
+    # get the DynamoDB table
+    table = dynamodb.Table(table_name)
+
+    # check if the table result is valid
+    if not table:
+        print(f"DynamoDB Table {table_name} not found")
+        return None
+
+    # return the table arn
+    return table.latest_stream_arn
+
+ 
+
+
 
 #if this .py is executed directly on the command line
 def main(argv):

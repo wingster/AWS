@@ -40,6 +40,8 @@ import boto3
 import sys
 from poc_iam_role import get_arn_by_role_name
 from poc_sqs import get_sqs_queue_arn
+from poc_dynamo_db import get_dynamodb_stream_arn
+from poc_sns import get_sns_topic_arn
 from utils.zip import create_zip_content
 
 lambda_definitions = {
@@ -51,11 +53,11 @@ lambda_definitions = {
         "Trigger": {
             "SQS_Trigger" : {
                 "Principal": "sqs.amazonaws.com",
-                "SourceArn": get_sqs_queue_arn("POC1-Queue"),
+                "EventSourceArn": get_sqs_queue_arn("POC1-Queue"),
             },
         },
         "Destination": [],
-        "zip_content":  {
+        "zip_content":  {  # zip_content will try to zip the in-line code segment on-the-fly
             "save_order_record.py" : 
 """        
 import boto3, uuid
@@ -68,8 +70,42 @@ def lambda_handler(event, context):
         payload = record["body"]
         print(str(payload))
         table.put_item(Item= {'orderID': str(uuid.uuid4()), 'order':  payload})
-"""}
-    }
+"""
+        }
+    },
+
+    "POC-Lambda-2": {  
+        "FunctionName": "POC-Lambda-1",
+        "Runtime": "python3.9",
+        "Role": "POC1-Lambda-DynamoDBStreams-SNS",
+        "Handler": "send_order_detail.lambda_handler",
+        "Trigger": {
+            "DynamoDB_Trigger" : {
+                "Principal": "dynamodb.amazonaws.com",
+                "EventSourceArn": get_dynamodb_stream_arn("POC1_orders"),
+                "StartingPosition": "LATEST",
+            },
+        },
+        "Destination": [],
+        "zip_content":  {  # zip_content will try to zip the in-line code segment on-the-fly
+            "send_order_detail.py" : 
+f"""
+import boto3, json
+client = boto3.client('sns')
+
+def lambda_handler(event, context):
+    for record in event["Records"]:
+        if record['eventName'] == 'INSERT':
+            new_record = record['dynamodb']['NewImage']    
+            response = client.publish(
+                TargetArn='{get_sns_topic_arn("POC1-Topic")}',
+                Message=json.dumps({{'default': json.dumps(new_record)}}),
+                MessageStructure='json'
+            )        
+"""
+        }
+    },
+
 }
 
 # When defining the Code parameter for the create_function method in Lambda, there are a few different keys you can specify depending on where your function code is stored: [1]
@@ -104,14 +140,16 @@ def create_lambda():
                 StatementId=f"{lambda_def}-{trigger}",
                 Action="lambda:InvokeFunction",
                 Principal=trigger_param["Principal"],
-                SourceArn=trigger_param["SourceArn"],
+                SourceArn=trigger_param["EventSourceArn"],
             )
-            lambda_client.create_event_source_mapping(
-                EventSourceArn=trigger_param["SourceArn"],
-                FunctionName=lambda_def,
-                Enabled=True
-            )
-            print(f"Event source mapping created for {trigger} to Lambda function {lambda_def}")
+
+            local_trigger_param = trigger_param.copy()
+            local_trigger_param['FunctionName'] = lambda_def
+            # remove Principal from local_trigger_param
+            local_trigger_param.pop('Principal')
+            
+            lambda_client.create_event_source_mapping(**local_trigger_param)
+            print(f"     Event source mapping created for {trigger}:{trigger_param["EventSourceArn"]} to Lambda function {lambda_def}")
 
 
 # Rapid creation and deletion may throw this annoying error
@@ -120,30 +158,37 @@ def create_lambda():
 def delete_lambda():
     lambda_client = boto3.client('lambda')
     for lambda_def in lambda_definitions:
-        # remove event source mappings associated with this function
-        mappings = lambda_client.list_event_source_mappings(FunctionName=lambda_def)['EventSourceMappings']
-        for m in mappings:
-            lambda_client.delete_event_source_mapping(UUID=m['UUID'])
+        # check if lambda function exists
+        try:
+            lambda_client.get_function(FunctionName=lambda_def)
 
-        lambda_client.delete_function(FunctionName=lambda_def)
-        print(f"Lambda function {lambda_def} deleted")
+            mappings = lambda_client.list_event_source_mappings(FunctionName=lambda_def)['EventSourceMappings']
+            for m in mappings:
+                lambda_client.delete_event_source_mapping(UUID=m['UUID'])
 
+            lambda_client.delete_function(FunctionName=lambda_def)
+            print(f"Lambda function {lambda_def} deleted")
+        # if lambda function does not exist, print error message and continue to next lambda function
+        except lambda_client.exceptions.ResourceNotFoundException:
+            print(f"Lambda function {lambda_def} does not exist, skipping...")
+            continue
+      
 
 def list_lambda():
     lambda_client = boto3.client('lambda')
     response = lambda_client.list_functions()
+
     for function in response["Functions"]:
-        print(f"Function {function['FunctionName']} with ARN {function['FunctionArn']}")
+        
+        state = lambda_client.get_function_configuration(FunctionName=function['FunctionName'])['State']
+        print(f"Function {function['FunctionName']} state: {state}  ARN {function['FunctionArn']}")
         # print the event source mappings associated with this function
         mappings = lambda_client.list_event_source_mappings(FunctionName=function["FunctionName"])['EventSourceMappings']
         for m in mappings:
-            print(f"  Event source mapping {m['UUID']} with {m['EventSourceArn']}")
+            print(f"  Event source mapping {m['UUID']} with {m['EventSourceArn']}, state = {m['State']}")
 
 
 
-
-  
-        
 
 
 #if this .py is executed directly on the command line

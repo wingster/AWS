@@ -32,29 +32,33 @@ def create_sqs():
                 'MessageRetentionPeriod': '86400'
             }
         )
-
+        print(response)
+        
+        # get the queue ARN from the response
         queue_url = response['QueueUrl']
+        queue_arn = get_sqs_queue_arn(sqs_queue)
+        
         send_roles = [get_arn_by_role_name(role) for role in sqs_param['SendRoles']]
         recv_roles = [get_arn_by_role_name(role) for role in sqs_param['ReceiveRoles']]
         
         statements = []
         for role_arn in send_roles:
-            action = "SQS:SendMessage"
+            action = "sqs:SendMessage"
             statement = {
                 'Effect': 'Allow',
                 'Principal': {'AWS': role_arn},
                 'Action': action,
-                'Resource': queue_url
+                'Resource': queue_arn
             }
             statements.append(statement)
         
         for role_arn in recv_roles:
-            action = "SQS:ReceiveMessage"
+            action = "sqs:ReceiveMessage"
             statement = {
                 'Effect': 'Allow',
                 'Principal': {'AWS': role_arn},
                 'Action': action,
-                'Resource': queue_url
+                'Resource': queue_arn
             }
             statements.append(statement)
         
@@ -100,6 +104,11 @@ def list_sqs():
     num_queues = 0
     # list the queues
     response = sqs.list_queues()
+    # check if see if the repsonse dictionary contains QueueUrls
+    # if 'QueueUrls' not in response:
+    #     print("No queues found.")
+    #     return
+    
     # print the queue URLs
     for queue_url in response['QueueUrls']:
         # map the queue_url to the queue name
