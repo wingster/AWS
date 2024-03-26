@@ -7,11 +7,13 @@
 # There are User-defined polices and AWS-defined polices. (The policy ARN between user-defined policy and AWS-defined policy are different)
 #  
 
+import sys
+import json
+
 import logging
 import boto3
 from botocore.exceptions import ClientError
 from Config import Config
-import sys
 
 # TODO: look into logger configurations & identify log locations
 logger = logging.getLogger(__name__)
@@ -21,9 +23,9 @@ class IamRole(Config):
     def __init__(self, dict=None):
         super().__init__("iam", dict)
 
-    def do_list(self):
+    def do_list(self, botoClient, configMap):
         try:
-            response = self.botoClient.list_roles()
+            response = botoClient.list_roles()
             for role in response['Roles']:
                 #print(role)
                 attribute = {
@@ -42,15 +44,26 @@ class IamRole(Config):
             logger.error(e)
             return None
         
-    def do_create(self):
+    def do_create(self, botoClient, configMap):
         try:
+            accountId = self.accountId()
+            for role_name, role_definition in configMap.items():
+                print(f"Creating IAM Role {role_name}")
 
-            response = self.botoClient.create_role(
-                RoleName=self.name,
-                AssumeRolePolicyDocument=self.assume_role_policy_document,
-                Description=self.description,
-                MaxSessionDuration=self.max_session_duration,
-                Tags=self.tags
+            response = botoClient.create_role(
+                RoleName=role_name,
+                AssumeRolePolicyDocument=json.dumps({
+                    "Version": "2012-10-17",
+                    "Statement": [
+                        {
+                            "Effect": "Allow",
+                            "Principal": {
+                                role_definition["PrincipalType"]: role_definition[role_definition["PrincipalType"]]
+                            },
+                            "Action": "sts:AssumeRole"
+                        }
+                    ]
+                })
             )
             return response
         except ClientError as e:

@@ -17,6 +17,7 @@ from Project import Project
 from IamPolicy import IamPolicy
 from IamRole import IamRole
 from Kms import Kms
+from Config import Config
 from botocore.exceptions import ClientError
 
 
@@ -44,7 +45,9 @@ policy_definitions = {
 
 role_definition = {
     "C4W1-Kms-EncryptRole": {
-        "Service" : "kms.amazonaws.com",
+        "PrincipalType" : "AWS",
+        "AWS" : Config.accountId(),
+        #"Service" : "kms.amazonaws.com",
         "UserPolicies": ["C4W1-Kms-EncryptPolicy"],
         "AWSPolicies" : []
     }
@@ -54,15 +57,18 @@ kms_definition = {
     "C4W1-Kms-Key": {
         "Description": "KMS Key for C4W1",
         "KeyUsage": "ENCRYPT_DECRYPT",
+        "Origin" : "AWS_KMS",
         "KeySpec": "SYMMETRIC_DEFAULT",
-        "KeyPolicy": {
-            "Version": "2012-10-17",
-            "Statement": [
-                {
-                    "Sid": "XXXXXXXXXXXXX",
-                    "Effect": "Allow",
-                    "Principal": {
-                        "AWS": "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+        "Tags": [
+            { "TagKey" : "Context",
+              "TagValue" : "C4W1 Runner",
+            },
+            { "TagKey" : "Environment",
+              "TagValue" : "Development",
+            }
+        ],
+    }
+}
                         
 
 def create(project):
@@ -88,8 +94,8 @@ def run(project):
         try:
             kms = project.getConfig(Kms)
             cipher_text = kms.encrypt(
-                keyName=key_id, plainText=text.encode()
-            )["CiphertextBlob"]
+                keyName=key_id, plainText=text
+            )
 
             print(f"Your ciphertext is: {cipher_text}")
 
@@ -107,17 +113,12 @@ def run(project):
 
         
 
-
-
-
-
-
 #if this .py is executed directly on the command line
 def main(argv):
     # argv[0] is the script name, print remaining arguments separated by space without the bracket
     print("Running :", " ".join(argv[0:]))
     
-    project = Project(name="C4_W1_SecureArchitecture", roleName="AWSServiceRoleForSupport")
+    project = Project(name="C4_W1_SecureArchitecture")
     # if no additonal arguments are passed, print usage help
     if len(argv) != 2 or argv[1] not in ["create", "delete", "list", "run"]:
         print(f"Usage: python3 {argv[0]} <create|delete|list>")
@@ -137,9 +138,17 @@ def main(argv):
         elif action == "list":
             list(project)
         elif action == "run":
-            project.addConfig(Kms)
-            list(project)
-            run(project)
+            # Create IAM Policy and IAM Role required for this run
+            project.addConfig(IamPolicy, policy_definitions)
+            project.addConfig(IamRole, role_definition)
+
+            project.create()
+
+            # Now that the role has been created, instantiate a seperate project which assume the role.
+            runProject = Project(name="C4_W1_SecureArchitecture_RunTime", role="C4W1-Kms-EncryptRole")
+            runProject.addConfig(Kms)
+            list(runProject)
+            run(runProject)
 
 
 if __name__ == "__main__":

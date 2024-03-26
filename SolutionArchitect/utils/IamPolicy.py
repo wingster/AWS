@@ -55,19 +55,17 @@ class IamPolicy(Config):
             logger.error(e)
             return None
         
-    def do_create(self):
+    def do_create(self, botoClient, configMap):
         try:
             print("do_create polices")
-            for policy_name, policy_definition in self.configMap.items():
+            for policy_name, policy_definition in configMap.items():
                 # create the policy
-                response = self.botoClient.create_policy(
+                response = botoClient.create_policy(
                     PolicyName=policy_name,
                     PolicyDocument=json.dumps(policy_definition)
                 )
                 # print the policy ARN
                 print(f"Created policy {policy_name} with ARN {response['Policy']['Arn']}")
-                # add the policy to the policy map
-                self.addResource(response['PolicyName'],  response['Policy']['Arn'])
             return
         except ClientError as e:
             logger.error(e)

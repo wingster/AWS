@@ -15,6 +15,8 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 class Config:
+    _accountId = None
+    _region = None
 
     def __init__(self, botoName, inputMap=None, session=None):
         self.session = session
@@ -22,16 +24,19 @@ class Config:
         self.configMap = inputMap
         self.resourceMap = {}
         
-    # common attributes
-    def accountId(self):
-        if self.accountId is None:
-            self.accountId = boto3.client('sts').get_caller_identity().get('Account')
-        return self.accountId
+    # class static function to get accountId()
+    @staticmethod
+    def accountId():
+        if Config._accountId is None:
+            Config._accountId = boto3.client('sts').get_caller_identity().get('Account')
+        return Config._accountId
     
-    def region(self):
-        if self.region is None:
-            self.region = boto3.session.Session().region_name
-        return self.region
+    # class static function to get region()
+    @staticmethod
+    def Region():
+        if Config._region is None:
+            Config._region = boto3.session.Session().region_name
+        return Config._region
     
 
     def addResource(self, name, arn):
@@ -81,7 +86,10 @@ class Config:
         if self.configMap is None:
             print("No resource definition to create")
             return
-        return self.do_create(self.botoClient, self.configMap)
+        ret = self.do_create(self.botoClient, self.configMap)
+        # If any item is successfully created, call do_list to update the dictionary
+        self.list()  # <- should this be done here ?
+        return ret
     
 
     def do_delete(self, botoClient, configMap):
