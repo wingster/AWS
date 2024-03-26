@@ -22,30 +22,34 @@
 #   NotPrincipal
 # 
 
+import sys
+import json
 import logging
 import boto3
 from botocore.exceptions import ClientError
+
 from Config import Config
-import sys
-import json
 
 # TODO: look into logger configurations & identify log locations
 logger = logging.getLogger(__name__)
 
 class IamPolicy(Config):
-    # Policy map to keep "policy", "policyARN" for this instance
-    policy_map = {}
 
-    def __init__(self, dict=None):
-        super().__init__("iam", dict)
+    def __init__(self, inputMap=None, session=None):
+        super().__init__("iam", inputMap=inputMap, session=session)
 
 
     def do_list(self):
         try:
-            response = self.boto_client.list_policies()
+            response = self.botoClient.list_policies()
             for policy in response['Policies']:
-                self.policy_map[policy['PolicyName']] = policy['Arn']
-                print(f"Policy {policy['PolicyName']} with ARN {policy['Arn']}")
+                #print(policy)
+                attribute = {
+                    'Arn' : policy['Arn'],
+                    'PolicyId' : policy['PolicyId'],
+                    'Path' : policy['Path'],
+                }
+                self.addResource(policy['PolicyName'], attribute)
             return response
         except ClientError as e:
             logger.error(e)
@@ -54,16 +58,16 @@ class IamPolicy(Config):
     def do_create(self):
         try:
             print("do_create polices")
-            for policy_name, policy_definition in self.dict.items():
+            for policy_name, policy_definition in self.configMap.items():
                 # create the policy
-                response = self.boto_client.create_policy(
+                response = self.botoClient.create_policy(
                     PolicyName=policy_name,
                     PolicyDocument=json.dumps(policy_definition)
                 )
                 # print the policy ARN
                 print(f"Created policy {policy_name} with ARN {response['Policy']['Arn']}")
                 # add the policy to the policy map
-                self.policy_map[response['PolicyName']] = response['Policy']['Arn']
+                self.addResource(response['PolicyName'],  response['Policy']['Arn'])
             return
         except ClientError as e:
             logger.error(e)
@@ -72,15 +76,15 @@ class IamPolicy(Config):
     def do_delete(self):
         try:
             # iterate though the configuration diectionary and only remove the ones defined by this instance
-            for policy_name in self.dict.keys():
-                policy_arn = self.policy_map[policy_name]
+            for policy_name in self.configMap.keys():
+                policy_arn = self.configMap[policy_name]
 
                 if policy_arn == None:
                     print(f"Policy ARN for {policy_name} not found")
                     continue
                 else:                
                     # delete the policy
-                    response = self.boto_client.delete_policy(PolicyArn=policy_arn)
+                    response = self.botoClient.delete_policy(PolicyArn=policy_arn)
                     print(f"Deleted policy {policy_name} with ARN {policy_arn}")
             return
         except iam.exceptions.DeleteConflictException:

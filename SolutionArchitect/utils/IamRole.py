@@ -23,7 +23,20 @@ class IamRole(Config):
 
     def do_list(self):
         try:
-            response = self.boto_client.list_roles()
+            response = self.botoClient.list_roles()
+            for role in response['Roles']:
+                #print(role)
+                attribute = {
+                    "Arn" : role['Arn'],
+                    "RoleId" : role['RoleId'],
+                    "Path" : role['Path'],
+                }
+                # check to see if role contains Description as key
+                if "Description" in role:
+                    attribute["Description"] = role["Description"]
+                else:
+                    attribute["Description"] = ""
+                self.addResource(role['RoleName'], attribute)
             return response
         except ClientError as e:
             logger.error(e)
@@ -32,7 +45,7 @@ class IamRole(Config):
     def do_create(self):
         try:
 
-            response = self.boto_client.create_role(
+            response = self.botoClient.create_role(
                 RoleName=self.name,
                 AssumeRolePolicyDocument=self.assume_role_policy_document,
                 Description=self.description,
@@ -44,6 +57,14 @@ class IamRole(Config):
             logger.error(e)
             return None
         
+
+def test1(configType, dict=None):
+    print(f"calling {configType}")
+    ## instantiance an instance of configType
+    configObject = configType(dict)
+    configObject.list()
+
+
 
 #if this .py is executed directly on the command line
 def main(argv):
@@ -66,6 +87,7 @@ def main(argv):
             role.delete()
         elif action == "list":
             role.list()
+            #test1(IamRole)
 
 
 if __name__ == "__main__":
