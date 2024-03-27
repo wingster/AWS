@@ -13,8 +13,7 @@ import logging
 import boto3
 from botocore.exceptions import ClientError
 
-from Config import Config
-
+from Config import Config, Status, Action
 
 # TODO: look into logger configurations & identify log locations
 logger = logging.getLogger(__name__)
@@ -57,53 +56,41 @@ class Kms(Config):
         
 
     # Create a new key in KMS    
-    def do_create(self, client, inputMap):
+    def do_create(self, client, key, keyConfig):
         try:
-            print("do_create kms keys")
-            self.list()  #refresh self.configMap to contain the latest set of keys
-            for key_name, key_definition in inputMap.items():
-                # check to see if key_name exists in self.configMap.keys()
-                print(f"checking {key_name} in {self.configMap.keys()}")
-                if key_name in self.configMap.keys():
-                    print(f"Key {key_name} already exists.")
-                    continue
+            logger.info(f"do_create kms key: {key}, {keyConfig}")
             
-                # create the KMS key via boto3
-                response = client.create_key(
-                    Alias=key_name,
-                    Description=key_definition['Description'],
-                    KeyUsage=key_definition['KeyUsage'],
-                    Origin=key_definition['Origin'],
-                    Tags=key_definition['Tags']
-                )
-                
-                # print the policy ARN
-                print(f"Created Key {key_name} with ARN {response['KeyMetadata']['Arn']}")
-            return
+            response = client.create_key(
+                Alias=key,
+                Description=keyConfig['Description'],
+                KeyUsage=keyConfig['KeyUsage'],
+                Origin=keyConfig['Origin'],
+                Tags=keyConfig['Tags']
+            )
+            # log the policy ARN
+            logger.info(f"Created Key {key} with ARN {response['KeyMetadata']['Arn']}")
+            return Status.SUCCESS, response 
         except ClientError as e:
             logger.error(e)
-            return None
+            return Status.FAILED, e
         
-    def do_delete(self, client, inputMap):
+    def do_delete(self, client, key, keyConfig):
         try:
-            # iterate though the configuration dictionary and only remove the keys defined by this instance
-            for key_name in self.configMap.keys():
-                key_arn = self.getArn(key_name)
+            key_arn = self.getArn(key)
+            if key_arn == None:
+                errorMsg = f"Unable to resolve ARN for {key}. do_delete failed"
+                logger.error(errorMsg)
+                return Config.Status.FAILED, errorMsg
 
-                if key_arn == None:
-                    print(f"Key ARN for {key_name} not found, skipping delete")
-                    continue
-                else:
-                    # delete the key
-                    response = self.botoClient.schedule_key_deletion(
-                        KeyId=key_arn,
-                        PendingWindowInDays=7
-                    )
-                    print(f"Deleted key {key_name} with ARN {key_arn}")
-
+            response = self.botoClient.schedule_key_deletion(
+                KeyId=key_arn,
+                PendingWindowInDays=7
+            )
+            logger.info(f"Deleted key {key} with ARN {key_arn}")
+            return Status.SUCCESS, response
         except ClientError as e:
             logger.error(e)
-            return None
+            return Status.FAILED, e
 
     def encrypt(self, keyName, plainText):
         try:
@@ -160,6 +147,8 @@ class Kms(Config):
 
 
 def unitTest():
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
+
     kms_definition = {
         "Common-UnitTest-Kms-001": {
             "Description": "UnitTest KMS Test Key 001",
