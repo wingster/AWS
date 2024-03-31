@@ -82,7 +82,7 @@ class Kms(Config):
                 logger.error(errorMsg)
                 return Config.Status.FAILED, errorMsg
 
-            response = self.botoClient.schedule_key_deletion(
+            response = client.schedule_key_deletion(
                 KeyId=key_arn,
                 PendingWindowInDays=7
             )
@@ -187,7 +187,12 @@ def unitTest():
         print(f"Error encrypting or decrypting message {e}")
 
     # delete the keys in KMS
-    kms.delete()
+    # KMS implemented a pending removal mechanism. 
+    # We temporary disable the remove here
+    # The solution to this is to extend the framework to 
+    # to support deplay removal -> and have extension to renable the key
+    # if it detected that it's pending removal
+    #kms.delete()
     return 0
     # end of unitTest() function.
 

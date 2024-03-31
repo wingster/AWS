@@ -14,6 +14,7 @@ import logging
 import boto3
 from botocore.exceptions import ClientError
 from Config import Config
+from IamPolicy import IamPolicy
 
 # TODO: look into logger configurations & identify log locations
 logger = logging.getLogger(__name__)
@@ -23,9 +24,9 @@ class IamRole(Config):
     def __init__(self, dict=None):
         super().__init__("iam", dict)
 
-    def do_list(self, botoClient, configMap):
+    def do_list(self):
         try:
-            response = botoClient.list_roles()
+            response = self.botoClient.list_roles()
             for role in response['Roles']:
                 #print(role)
                 attribute = {
@@ -39,43 +40,102 @@ class IamRole(Config):
                 else:
                     attribute["Description"] = ""
                 self.addResource(role['RoleName'], attribute)
-            return response
+            return self.resourceMap
         except ClientError as e:
             logger.error(e)
             return None
         
-    def do_create(self, botoClient, configMap):
+    def do_create(self, client, key, keyConfig):
         try:
             accountId = self.accountId()
-            for role_name, role_definition in configMap.items():
-                print(f"Creating IAM Role {role_name}")
+            logger.info(f"do_create role: {key}, {keyConfig}")
 
-            response = botoClient.create_role(
-                RoleName=role_name,
+            response = client.create_role(
+                RoleName=key,
                 AssumeRolePolicyDocument=json.dumps({
                     "Version": "2012-10-17",
                     "Statement": [
                         {
                             "Effect": "Allow",
                             "Principal": {
-                                role_definition["PrincipalType"]: role_definition[role_definition["PrincipalType"]]
+                                keyConfig["PrincipalType"]: keyConfig[keyConfig["PrincipalType"]]
                             },
                             "Action": "sts:AssumeRole"
                         }
                     ]
                 })
             )
+            for policy_name in keyConfig["UserPolicies"]:
+                print(f"Attaching policy {policy_name} to role {key}...")
+                client.attach_role_policy(
+                    RoleName=key,
+                    # It would have been nice to get Arn from IamPolicy, but there isn't a link to IamPolicy at this time
+                    PolicyArn=f"arn:aws:iam::{accountId}:policy/{policy_name}" #iamPolicy.getArn(policy_name)
+            )
+                
+            # If there is a way to get Arn directly from IamPolicy, then we
+            # can handle both UserPolicies & AWSPolices in one-go and don't
+            # need to differentiate them
+            for policy_name in keyConfig["AWSPolicies"]:
+                print(f"Attaching arn {policy_name} to role {key}...")
+                client.attach_role_policy(
+                    RoleName=key,
+                    PolicyArn=f"arn:aws:iam::aws:policy/{policy_name}"
+                )    
             return response
         except ClientError as e:
             logger.error(e)
             return None
         
+    # do_delete
+    def do_delete(self, client, key, keyConfig):
+        pass
 
-def test1(configType, dict=None):
-    print(f"calling {configType}")
-    ## instantiance an instance of configType
-    configObject = configType(dict)
-    configObject.list()
+def unitTest():
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
+
+    # Test IAM Policy along with IAM Role
+    policy_definition = {
+        "Common-UnitTest-IamPolicy-002" : {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Effect": "Allow",
+                    "Action": [
+                        "s3:ListBucket"
+                    ],
+                    "Resource": [
+                        "*"
+                    ]
+                }
+            ]
+        }       
+    }
+
+    role_definition = {
+        "Common-UnitTest-IamRole-001" : {
+            "PrincipalType" : "AWS",
+            "AWS" : Config.accountId(),
+            "UserPolicies" : ["Common-UnitTest-IamPolicy-002"],
+            "AWSPolicies" : [],
+        },
+    }
+
+
+    # create a IamPolicy object with unitTest Key definition
+    iamPolicy = IamPolicy(policy_definition)
+    iamRole = IamRole(role_definition)
+    # create a new policy in IAM
+    iamPolicy.create()
+    iamRole.create()
+
+    # Assume the newly created role
+
+
+    iamRole.delete()
+    iamPolicy.delete()
+    return 0
+    # end of unitTest() function.
 
 
 
@@ -85,10 +145,10 @@ def main(argv):
     print("Running :", " ".join(argv[0:]))
     
     # if no additonal arguments are passed, print usage help
-    if len(argv) != 2 or argv[1] not in ["create", "delete", "list"]:
-        #    print(f"Usage: python3 {argv[0]} <create|delete|list>")
+    if len(argv) != 2 or argv[1] not in ["create", "delete", "list", "unit"]:
+        #    print(f"Usage: python3 {argv[0]} <create|delete|list|unit>")
         #print(f"account_id = {boto3.client('sts').get_caller_identity().get('Account')}")
-        print("Usage: python3 IamRole.py <create|delete|list> ")
+        print(f"Usage: python3 {argv[0]} <create|delete|list|unit> ")
         return
     else:
         # if additional arguments are passed, proceed with the action
@@ -100,7 +160,8 @@ def main(argv):
             role.delete()
         elif action == "list":
             role.list()
-            #test1(IamRole)
+        elif action == "unit":
+            unitTest()
 
 
 if __name__ == "__main__":

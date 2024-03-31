@@ -99,7 +99,7 @@ class Config:
         df = pd.DataFrame(self.resourceMap)
         # Display the tranposed dataframe without skipping and data
         df.transpose().to_csv(sys.stdout, index=False, header=False)
-        #print(df.transpose())
+        print(df.transpose())
         # TODO: define what should be returned for list ? the internal resource map or the transposed DF ?
         return ret
 

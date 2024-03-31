@@ -28,7 +28,7 @@ import logging
 import boto3
 from botocore.exceptions import ClientError
 
-from Config import Config
+from Config import Config, Status
 
 # TODO: look into logger configurations & identify log locations
 logger = logging.getLogger(__name__)
@@ -38,7 +38,7 @@ class IamPolicy(Config):
     def __init__(self, inputMap=None, session=None):
         super().__init__("iam", inputMap=inputMap, session=session)
 
-
+    # List all the IAM policies defined with the account
     def do_list(self):
         try:
             response = self.botoClient.list_policies()
@@ -50,48 +50,86 @@ class IamPolicy(Config):
                     'Path' : policy['Path'],
                 }
                 self.addResource(policy['PolicyName'], attribute)
-            return response
+            return self.resourceMap
         except ClientError as e:
             logger.error(e)
             return None
         
-    def do_create(self, botoClient, configMap):
+    def do_create(self, client, key, keyConfig):
         try:
-            print("do_create polices")
-            for policy_name, policy_definition in configMap.items():
-                # create the policy
-                response = botoClient.create_policy(
-                    PolicyName=policy_name,
-                    PolicyDocument=json.dumps(policy_definition)
-                )
-                # print the policy ARN
-                print(f"Created policy {policy_name} with ARN {response['Policy']['Arn']}")
-            return
+            logger.info(f"do_create polices: {key}, {keyConfig}")
+            response = client.create_policy(
+                PolicyName=key,
+                PolicyDocument=json.dumps(keyConfig)
+            )
+            # log the policy ARN
+            logger.info(f"Created policy {key} with ARN {response['Policy']['Arn']}")
+            return Status.SUCCESS, response
         except ClientError as e:
             logger.error(e)
-            return None
+            return Status.FAILED, e
         
-    def do_delete(self):
+    def do_delete(self, client, key, keyConfig):
         try:
-            # iterate though the configuration diectionary and only remove the ones defined by this instance
-            for policy_name in self.configMap.keys():
-                policy_arn = self.configMap[policy_name]
+            key_arn = self.getArn(key)
+            if key_arn == None:
+                errorMsg = f"Unable to resolve ARN for {key}. do_delete failed"
+                logger.error(errorMsg)
+                return Config.Status.FAILED, errorMsg
 
-                if policy_arn == None:
-                    print(f"Policy ARN for {policy_name} not found")
-                    continue
-                else:                
-                    # delete the policy
-                    response = self.botoClient.delete_policy(PolicyArn=policy_arn)
-                    print(f"Deleted policy {policy_name} with ARN {policy_arn}")
-            return
-        except iam.exceptions.DeleteConflictException:
-            print(f"Policy {policy_name} is in use and cannot be deleted")
-        except iam.exceptions.NoSuchEntityException:
-            print(f"Policy {policy_name} does not exist")
+            response = client.delete_policy(PolicyArn=key_arn)
+            logger.info(f"Deleted policy {key} with ARN {key_arn}")
+            return Status.SUCCESS, response
+        except client.exceptions.DeleteConflictException as dce:
+            errorMsg = f"Policy {key} is in use and cannot be deleted : {dce}"
+            logger.error(errorMsg)
+            return Status.FAILED, errorMsg
+        except client.exceptions.NoSuchEntityException as nsee:
+            errorMsg = f"Policy {key} does not exist : {nsee}"
+            logger.error(errorMsg)
+            return Status.FAILED, errorMsg
         except ClientError as e:
             logger.error(e)
-            return None
+            return Status.FAILED, e
+        
+def unitTest():
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
+
+    policy_definition = {
+        "Common-UnitTest-IamPolicy-001" : {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Effect": "Allow",
+                    "Action": [
+                        "s3:ListBucket"
+                    ],
+                    "Resource": [
+                        "*"
+                    ]
+                }
+            ]
+        }       
+    }
+
+    # create a IamPolicy object with unitTest Key definition
+    iamPolicy = IamPolicy(policy_definition)
+
+    # create a new policy in IAM
+    iamPolicy.create()
+
+    # list the policies scoped by policy defintions in IAM
+    iamPolicy.list()
+
+    # There isn't much one can exercise a IAM Policy alone, 
+    # actual test will be incorporated in IAM Role's unit test
+    
+    # delete the scoped/defined policies in IAM
+    iamPolicy.delete()
+    return 0
+    # end of unitTest() function.
+
+
         
 #if this .py is executed directly on the command line
 def main(argv):
@@ -99,10 +137,10 @@ def main(argv):
     print("Running :", " ".join(argv[0:]))
     
     # if no additonal arguments are passed, print usage help
-    if len(argv) != 2 or argv[1] not in ["create", "delete", "list"]:
-        #    print(f"Usage: python3 {argv[0]} <create|delete|list>")
+    if len(argv) != 2 or argv[1] not in ["create", "delete", "list", "unit"]:
+        #    print(f"Usage: python3 {argv[0]} <create|delete|list|unit>")
         #print(f"account_id = {boto3.client('sts').get_caller_identity().get('Account')}")
-        print("Usage: python3 IamRole.py <create|delete|list> ")
+        print(f"Usage: python3 {argv[0]} <create|delete|list|unit> ")
         return
     else:
         # if additional arguments are passed, proceed with the action
@@ -114,7 +152,8 @@ def main(argv):
             policy.delete()
         elif action == "list":
             policy.list()
-
-
+        elif action == "unit":
+            unitTest()
+            
 if __name__ == "__main__":
     main(sys.argv)
