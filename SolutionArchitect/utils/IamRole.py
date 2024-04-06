@@ -13,7 +13,7 @@ import json
 import logging
 import boto3
 from botocore.exceptions import ClientError
-from Config import Config
+from Config import Config, Status
 from IamPolicy import IamPolicy
 
 # TODO: look into logger configurations & identify log locations
@@ -21,8 +21,8 @@ logger = logging.getLogger(__name__)
 
 class IamRole(Config):
 
-    def __init__(self, dict=None):
-        super().__init__("iam", dict)
+    def __init__(self, inputMap=None, session=None):
+        super().__init__("iam", inputMap=inputMap, session=session)
 
     def do_list(self):
         try:
@@ -40,10 +40,10 @@ class IamRole(Config):
                 else:
                     attribute["Description"] = ""
                 self.addResource(role['RoleName'], attribute)
-            return self.resourceMap
+            return Status.SUCCESS, self.resourceMap
         except ClientError as e:
             logger.error(e)
-            return None
+            return Status.FAILED, e
         
     def do_create(self, client, key, keyConfig):
         try:
@@ -82,14 +82,31 @@ class IamRole(Config):
                     RoleName=key,
                     PolicyArn=f"arn:aws:iam::aws:policy/{policy_name}"
                 )    
-            return response
+            return Status.SUCCESS, response
         except ClientError as e:
             logger.error(e)
-            return None
+            return Status.FAILED, e
         
     # do_delete
     def do_delete(self, client, key, keyConfig):
-        pass
+        try:
+            # role name (key) existence check has already been validated in base Config class
+            role_policies = client.list_attached_role_policies(RoleName=key)["AttachedPolicies"]
+            for policy in role_policies:
+                print(f"Detaching policy {policy['PolicyName']} from role {key}...")
+                client.detach_role_policy(RoleName=key, PolicyArn=policy["PolicyArn"])   
+            print(f"Deleting role {key}...")
+            response = client.delete_role(RoleName=key)
+            return Status.SUCCESS, response
+        except client.exceptions.NoSuchEntityException:
+            #role_name does not exist, the base class should have filtered this - so return Status.FAILED
+            errMsg = f"Role {key} does not exist - unexpected in this function"
+            logger.error(errMsg)
+            return Status.FAILED, errMsg
+        except ClientError as e:
+            logger.error(e)
+            return Status.FAILED, e
+
 
 def unitTest():
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
@@ -109,7 +126,23 @@ def unitTest():
                     ]
                 }
             ]
-        }       
+        }
+        ,
+        "Common-UnitTest-IamPolicy-KMS" : {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Effect": "Allow",
+                    "Action": [
+                        "kms:ListKeys",
+                        "kms:Encrypt",
+                    ],
+                    "Resource": [
+                        "*"
+                    ]
+                }
+            ]
+        },
     }
 
     role_definition = {
@@ -119,6 +152,13 @@ def unitTest():
             "UserPolicies" : ["Common-UnitTest-IamPolicy-002"],
             "AWSPolicies" : [],
         },
+         "Common-UnitTest-IamRole-KMS" : {
+            "PrincipalType" : "AWS",
+            "AWS" : Config.accountId(),
+            "UserPolicies" : ["Common-UnitTest-IamPolicy-KMS"],
+            "AWSPolicies" : [],
+        },
+
     }
 
 
@@ -129,8 +169,7 @@ def unitTest():
     iamPolicy.create()
     iamRole.create()
 
-    # Assume the newly created role
-
+    # The test for assume role will be included in Project to avoid circular import depedencies
 
     iamRole.delete()
     iamPolicy.delete()

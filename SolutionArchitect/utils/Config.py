@@ -11,9 +11,17 @@ import logging
 import boto3
 from botocore.exceptions import ClientError
 import pandas as pd
+import json
+import types
 
 from enum import Enum
 
+# TODO: look into logger configurations & identify log locations
+logger = logging.getLogger(__name__)
+
+#
+# Define the standard Enum classes to make naming consistent across all config classes
+#
 class Status(Enum):
     FAILED = -1  # Action failed - unexpected result
     SUCCESS = 0  # Action carried out and successful
@@ -23,8 +31,23 @@ class Action(Enum):
     CREATE = "create"
     DELETE = "delete"
 
-# TODO: look into logger configurations & identify log locations
-logger = logging.getLogger(__name__)
+
+#
+# JSON encoder class for configurations that requires special handling
+# - Lazy resolution of resource names and ARNs
+#   
+class ConfigJsonEncoder(json.JSONEncoder):
+    def default(self, o):
+        if isinstance(o, types.GeneratorType):
+            return next(o)
+        return json.JSONEncoder.default(self, o)
+    
+
+#
+# Base class for AWS config related functions via boto3
+# - Maintain internal resource map to determine the proper steps to setup the required AWS resources
+# - Support dependency resolution, to instantiate resources with correct ordering
+# - Support sessions to allow the caller to switch to a specific IAM role
 
 class Config:
     _accountId = None
@@ -51,6 +74,10 @@ class Config:
             Config._region = boto3.session.Session().region_name
         return Config._region
     
+    @staticmethod
+    def convertJson(obj):
+        return json.dumps(obj, cls=ConfigJsonEncoder)
+    
     # Add the list of attributes assoicated with names to the internal resource map
     def addResource(self, name, attributes):
         self.resourceMap[name] = attributes
@@ -65,13 +92,12 @@ class Config:
 
     def do_list(self):
         logger.info("Calling Config.do_list")
-        warnMsg = "Config.do_create not implemented for the base class"
+        warnMsg = "Config.do_list not implemented for the base class"
         logger.warning(warnMsg)
         status = Status.FAILED
         return status, warnMsg
 
 
-        
     def list(self):
         """
         Determine to list all the resources in the running account, 
@@ -85,23 +111,35 @@ class Config:
         else:
             filtered_list = None
 
-        resources = self.do_list()
+        status, resources = self.do_list()
+        if status == Status.FAILED:
+            #logger.error(resources)
+            return status, resources
+
         # Delegate to the child class to select the attributes for the given resource to be included in the resource map
         # Once this is more mature we can have the child class to identify the list of tags to extract from the response structure
         # i.e. once we have implemented and observed similarity with the extraction logic
         self.dirty = False
-
         ret = resources
+
         if filtered_list is not None:
             ret = [item for item in resources if item in filtered_list]
 
+        # return the internal resource map 
+        return status, ret
+    
         
-        df = pd.DataFrame(self.resourceMap)
-        # Display the tranposed dataframe without skipping and data
-        df.transpose().to_csv(sys.stdout, index=False, header=False)
-        print(df.transpose())
-        # TODO: define what should be returned for list ? the internal resource map or the transposed DF ?
-        return ret
+        def getResourceDataFrame(self):
+            """
+            Return a dataframe of the internal resource map
+            """
+            df = pd.DataFrame(self.resourceMap)
+            return df.transpose()
+        
+        # df = pd.DataFrame(self.resourceMap)
+        # # Display the tranposed dataframe without skipping and data
+        # df.transpose().to_csv(sys.stdout, index=False, header=False)
+        # print(df.transpose())
 
 
     def action(self, action, do_action):
@@ -116,7 +154,13 @@ class Config:
         
         # Refresh the internal map if dirty
         if self.dirty:
-            self.list()
+            status, result = self.list()
+            # handle error here, since self.configMap is not in sync w/ backend
+            if status == Status.FAILED:
+                resultMap = {}
+                resultMap['ErrorKey'] = "*"
+                resultMap['ErrorMessage'] = "Failure in refreshing resource list"
+                return status, resultMap
 
         overall_status = Status.NO_OP
         successKeys = []

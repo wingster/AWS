@@ -50,17 +50,17 @@ class IamPolicy(Config):
                     'Path' : policy['Path'],
                 }
                 self.addResource(policy['PolicyName'], attribute)
-            return self.resourceMap
+            return Status.SUCCESS, self.resourceMap
         except ClientError as e:
             logger.error(e)
-            return None
+            return Status.FAILED, e
         
     def do_create(self, client, key, keyConfig):
         try:
             logger.info(f"do_create polices: {key}, {keyConfig}")
             response = client.create_policy(
                 PolicyName=key,
-                PolicyDocument=json.dumps(keyConfig)
+                PolicyDocument=Config.convertJson(keyConfig)
             )
             # log the policy ARN
             logger.info(f"Created policy {key} with ARN {response['Policy']['Arn']}")

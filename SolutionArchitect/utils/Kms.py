@@ -13,7 +13,7 @@ import logging
 import boto3
 from botocore.exceptions import ClientError
 
-from Config import Config, Status, Action
+from Config import Config, Status
 
 # TODO: look into logger configurations & identify log locations
 logger = logging.getLogger(__name__)
@@ -49,10 +49,10 @@ class Kms(Config):
                     if aliasName.startswith('alias/'):
                         aliasName = aliasName[len('alias/'):]
                     self.addResource(aliasName, attribute)
-            return self.resourceMap
+            return Status.SUCCESS, self.resourceMap
         except ClientError as e:
             logger.error(e)
-            return None
+            return Status.FAILED, e
         
 
     # Create a new key in KMS    
@@ -204,9 +204,7 @@ def main(argv):
     
     # if no additonal arguments are passed, print usage help
     if len(argv) != 2 or argv[1] not in ["create", "delete", "list", "unit"]:
-        #    print(f"Usage: python3 {argv[0]} <create|delete|list>")
-        #print(f"account_id = {boto3.client('sts').get_caller_identity().get('Account')}")
-        print("Usage: python3 IamRole.py <create|delete|list|unit> ")
+        print(f"Usage: python3 {argv[0]} <create|delete|list|unit> ")
         return
     else:
         # if additional arguments are passed, proceed with the action
